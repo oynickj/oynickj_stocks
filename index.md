@@ -1,37 +1,239 @@
-## Welcome to GitHub Pages
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="utf-8">
+    <title>Stocks!</title>
+    <link rel="icon" href="https://d3v3cbxkdlyonc.cloudfront.net/stocks/favicon.ico">
+    <meta name="description" content="A free, lightweight, blazing-fast page to get stock quotes using the IEX API">
 
-You can use the [editor on GitHub](https://github.com/oynickj/stock-portfolio/edit/master/index.md) to maintain and preview the content for your website in Markdown files.
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Roboto",
+          "Oxygen", "Ubuntu", "Helvetica Neue", Arial, sans-serif;
+      }
+      table { font-family: Courier, monospace; }
+      .stocks-container {
+        margin-bottom: 1.5em;
+        width: 100%;
+        max-width: 600px;
+      }
+      .stocks-container a { text-decoration: none; }
+      table {
+        border-collapse: collapse;
+        width: 100%;
+        font-size: 1.1em;
+      }
+      .stock-symbol {
+        width: 12%;
+        padding: 2px 4px 2px 0px;
+      }
+      .stock-price, .stock-change, .stock-change-pct, .stock-mkt-cap {
+        width: 22%;
+        text-align: right;
+        padding: 2px 4px;
+      }
+      @media (max-width: 576px) {
+        table { margin-bottom: 3em; }
+        .stock-mkt-cap { display: none; }
+        .stock-symbol { width: 16%; }
+        .stock-price, .stock-change, .stock-change-pct { width: 28%; }
+        td.stock-symbol, td.stock-price, td.stock-change, td.stock-change-pct {
+          padding-top: 1em;
+          padding-bottom: 1em;
+        }
+      }
+      summary:hover { cursor: pointer; }
+      summary::-webkit-details-marker { display: none; }
+    </style>
+  </head>
 
-Whenever you commit to this repository, GitHub Pages will run [Jekyll](https://jekyllrb.com/) to rebuild the pages in your site, from the content in your Markdown files.
+  <body>
+    <div class="stocks-container"></div>
 
-### Markdown
+    <p class="attribution">
+      Data provided for free by <a href="https://iextrading.com/developer/" target="_blank">IEX</a>.
+      Subject to <a href="https://iextrading.com/api-exhibit-a/" target="_blank">IEX Exhibit A</a>.
+    </p>
 
-Markdown is a lightweight and easy-to-use syntax for styling your writing. It includes conventions for
+    <p class="updated-timestamp"></p>
 
-```markdown
-Syntax highlighted code block
+    <p>Customize <a href="https://github.com/toddwschneider/stocks" target="_blank">on GitHub</a></p>
 
-# Header 1
-## Header 2
-### Header 3
+    <script>
+      'use strict';
 
-- Bulleted
-- List
+      const DEFAULT_PORTFOLIOS = [
+        {'name': 'Market ETFs', 'symbols': ['SPY', 'DIA', 'QQQ', 'IWM']},
+        {'name': 'Sector ETFs', 'symbols': ['XLF', 'XLK', 'XLV', 'XLP', 'XLY', 'XLE', 'XLB', 'XLI', 'XLU', 'XLRE']},
+        {'name': 'Banks', 'symbols': ['GS', 'MS', 'JPM', 'WFC', 'C', 'BAC', 'BCS', 'DB', 'CS', 'RBS']},
+        {'name': 'Tech', 'symbols': ['AAPL', 'GOOGL', 'MSFT', 'AMZN', 'FB', 'TWTR', 'NFLX', 'SNAP', 'SPOT', 'DBX', 'BABA', 'INTC', 'AMD', 'NVDA', 'ORCL']},
+        {'name': 'Bond ETFs', 'symbols': ['BND', 'BIV', 'JNK']},
+        {'name': 'Other ETFs', 'symbols': ['VOO', 'VTI', 'VGK', 'VPL', 'VWO', 'VDE', 'XOP', 'VFH', 'VHT', 'VIG', 'VYM', 'VAW', 'REM', 'XHB', 'GLD']},
+        {'name': 'Mortgage REITs', 'symbols': ['EFC', 'EARN', 'NLY', 'AGNC', 'CIM', 'TWO', 'NRZ']},
+        {'name': 'Autos', 'symbols': ['F', 'GM', 'FCAU', 'TM', 'HMC', 'TSLA']},
+        {'name': 'BigCos', 'symbols': ['XOM', 'WMT', 'JNJ', 'GE', 'T', 'KO', 'DIS', 'MCD', 'PG']}
+      ];
 
-1. Numbered
-2. List
+      const PORTFOLIOS = portfoliosFromQueryParams() || DEFAULT_PORTFOLIOS;
+      const REFRESH_SECONDS = 10;
+      const BATCH_SIZE = 100;
+      const BASE_URL = 'https://api.iextrading.com/1.0/stock/market/batch';
 
-**Bold** and _Italic_ and `Code` text
+      let symbols = [];
+      let containerDiv = document.querySelector('.stocks-container');
+      let updatedDiv = document.querySelector('.updated-timestamp');
 
-[Link](url) and ![Image](src)
-```
+      PORTFOLIOS.forEach((p, i) => addPortfolio(p, i === 0));
+      symbols = symbols.filter((s, i) => symbols.indexOf(s) === i);
+      updateData('addTitle');
+      setInterval(updateData, REFRESH_SECONDS * 1000);
 
-For more details see [GitHub Flavored Markdown](https://guides.github.com/features/mastering-markdown/).
+      function addPortfolio(portfolio, includeHeader) {
+        let tableHeaderHtml = '';
+        if (includeHeader) {
+          tableHeaderHtml = `
+            <thead>
+              <tr>
+                <th></th>
+                <th class="stock-price">Last</th>
+                <th class="stock-change">Change</th>
+                <th class="stock-change-pct">Change%</th>
+                <th class="stock-mkt-cap">Mkt Cap</th>
+              </tr>
+            </thead>
+          `
+        }
 
-### Jekyll Themes
+        let tableBodyHtml = portfolio.symbols.map(symbol => {
+          symbol = symbol.toUpperCase();
+          symbols.push(symbol);
 
-Your Pages site will use the layout and styles from the Jekyll theme you have selected in your [repository settings](https://github.com/oynickj/stock-portfolio/settings). The name of this theme is saved in the Jekyll `_config.yml` configuration file.
+          let html = `
+            <tr data-symbol="${symbol}">
+              <td class="stock-symbol"><a href="${symbolUrl(symbol)}" target="_blank">${symbol}</a></td>
+              <td class="stock-price"></td>
+              <td class="stock-change"></td>
+              <td class="stock-change-pct"></td>
+              <td class="stock-mkt-cap"></td>
+            </tr>
+          `
 
-### Support or Contact
+          return html;
+        }).join('');
 
-Having trouble with Pages? Check out our [documentation](https://help.github.com/categories/github-pages-basics/) or [contact support](https://github.com/contact) and we’ll help you sort it out.
+        let portfolioDiv = document.createElement('div');
+
+        portfolioDiv.innerHTML = `
+          <details open>
+            <summary><h2>${portfolio.name}</h2></summary>
+            <table>${tableHeaderHtml}<tbody>${tableBodyHtml}</tbody></table>
+          </details>
+        `;
+
+        containerDiv.appendChild(portfolioDiv);
+      }
+
+      function updateData(addTitle) {
+        let numberOfBatches = Math.ceil(symbols.length / BATCH_SIZE);
+
+        for (let i = 0; i < numberOfBatches; i++) {
+          let symbolsBatch = symbols.slice(i * BATCH_SIZE, (i + 1) * BATCH_SIZE);
+          updateDataForBatch(symbolsBatch, addTitle);
+        }
+
+        updatedDiv.innerHTML = `Data updated at ${(new Date()).toLocaleString()}`;
+      }
+
+      function updateDataForBatch(symbols, addTitle) {
+        let filters = ['latestPrice', 'change', 'changePercent', 'marketCap'];
+        if (addTitle) filters.push('companyName');
+        let url = `${BASE_URL}?types=quote&symbols=${symbols.join(',')}&filter=${filters.join(',')}`;
+
+        fetch(url).then(response => response.json()).then(json => {
+          symbols.forEach(symbol => {
+            let data = json[symbol];
+            if (typeof(data) === 'undefined') return;
+
+            let formattedPrice = formatQuote(data.quote.latestPrice);
+            let formattedChange = data.quote.change.toLocaleString('en', {'minimumFractionDigits': 2});
+            let formattedChangePercent = (data.quote.changePercent * 100).toFixed(1) + '%';
+            let formattedMarketCap = formatMarketCap(data.quote.marketCap);
+            let rgbColor = data.quote.changePercent > 0 ? '0,255,0' : '255,0,0';
+            let rgbOpacity = Math.min(Math.abs(data.quote.changePercent) * 20, 1);
+
+            document.querySelectorAll(`[data-symbol="${symbol}"] .stock-price`).forEach(e => {
+              e.innerHTML = formattedPrice;
+              e.setAttribute('style', `background-color: rgba(${rgbColor}, ${rgbOpacity})`);
+            });
+
+            document.querySelectorAll(`[data-symbol="${symbol}"] .stock-change`).forEach(e => {
+              e.innerHTML = formattedChange;
+              e.setAttribute('style', `background-color: rgba(${rgbColor}, ${rgbOpacity})`);
+            });
+
+            document.querySelectorAll(`[data-symbol="${symbol}"] .stock-change-pct`).forEach(e => {
+              e.innerHTML = formattedChangePercent;
+              e.setAttribute('style', `background-color: rgba(${rgbColor}, ${rgbOpacity})`);
+            });
+
+            document.querySelectorAll(`[data-symbol="${symbol}"] .stock-mkt-cap`).forEach(e => {
+              e.innerHTML = formattedMarketCap;
+              e.setAttribute('style', `background-color: rgba(${rgbColor}, ${rgbOpacity})`);
+            });
+
+            if (addTitle) {
+              document.querySelectorAll(`[data-symbol="${symbol}"] .stock-symbol a`).forEach(e => {
+                e.setAttribute('title', data.quote.companyName);
+              });
+            }
+          });
+        });
+      }
+
+      function portfoliosFromQueryParams() {
+        if (!window.location.search) return;
+
+        let params = new URLSearchParams(window.location.search);
+        let portfolios = [];
+
+        for (let p of params) {
+          portfolios.push({'name': p[0], 'symbols': p[1].split(',')});
+        }
+
+        return portfolios;
+      }
+
+      function symbolUrl(symbol) {
+        return `https://iextrading.com/apps/stocks/${symbol}`;
+      }
+
+      function formatQuote(value) {
+        let options = {
+          'minimumFractionDigits': 2,
+          'style': 'currency',
+          'currency': 'USD'
+        };
+        return value.toLocaleString('en', options);
+      }
+
+      function formatMarketCap(marketCap) {
+        let value, suffix;
+        if (marketCap >= 1e12) {
+          value = marketCap / 1e12;
+          suffix = 'T';
+        } else if (marketCap >= 1e9) {
+          value = marketCap / 1e9;
+          suffix = 'B';
+        } else {
+          value = marketCap / 1e6;
+          suffix = 'M';
+        }
+
+        let digits = value < 10 ? 1 : 0;
+
+        return '$' + value.toFixed(digits) + suffix;
+      }
+    </script>
+  </body>
+</html>
